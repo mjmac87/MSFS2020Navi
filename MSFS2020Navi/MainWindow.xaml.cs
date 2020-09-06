@@ -1,15 +1,15 @@
 ﻿using MahApps.Metro.Controls;
-using MapControl;
 using Microsoft.FlightSimulator.SimConnect;
+using Microsoft.Maps.MapControl.WPF;
 using System;
+using System.ComponentModel;
 using System.Runtime.InteropServices;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Interop;
-using System.Globalization;
-using System.Windows.Input;
-using ViewModel;
 using System.Windows.Threading;
+using System.Windows.Controls;
+using System.Windows.Media.Imaging;
+using System.Windows.Media;
 
 namespace MSFS2020Navi
 {
@@ -26,6 +26,27 @@ namespace MSFS2020Navi
 
         // SimConnect object
         SimConnect simConnect = null;
+
+        private Location mapCenter = new Location(52.329989, -0.182659);
+
+        public Location MapCenter
+        {
+            get { return mapCenter; }
+            set
+            {
+                mapCenter = value;
+                RaisePropertyChanged(nameof(MapCenter));
+            }
+        }
+
+        private Uri planeIcon = new Uri("plane-icon.png", UriKind.Relative);
+
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        protected void RaisePropertyChanged(string propertyName)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
 
         enum DEFINITIONS
         {
@@ -51,14 +72,13 @@ namespace MSFS2020Navi
             public double heading;
         };
 
+        readonly MapLayer ImageLayer = new MapLayer();
+        readonly Image PlaneIconImage = new Image();
 
         public MainWindow()
         {
+            this.DataContext = this;
             Topmost = true;
-
-            ImageLoader.HttpClient.DefaultRequestHeaders.Add("User-Agent", "MSFS2020 OSM MAP");
-            var cache = new CustomImageFileCache(TileImageLoader.DefaultCacheFolder);
-            TileImageLoader.Cache = cache;
 
             InitializeComponent();
             handle = new WindowInteropHelper(this).EnsureHandle(); // Get handle of main WPF Window
@@ -67,18 +87,25 @@ namespace MSFS2020Navi
 
             SetButtons(true, false, false);
 
-            Loaded += async (s, e) =>
-            {
-                await Task.Delay(2000);
-                await cache.Clean();
-            };
-
             DispatcherTimer timer = new DispatcherTimer
             {
                 Interval = TimeSpan.FromMilliseconds(1)
             };
             timer.Tick += UpdatePosition;
             timer.Start();
+
+            PlaneIconImage.Height = 48;
+            PlaneIconImage.Width = 48;
+            PlaneIconImage.Source = new BitmapImage(planeIcon);
+            PlaneIconImage.Stretch = System.Windows.Media.Stretch.None;
+
+            PlaneIconImage.HorizontalAlignment = HorizontalAlignment.Center;
+            PlaneIconImage.VerticalAlignment = VerticalAlignment.Center;
+
+            Location planeIconLocation = mapCenter;
+            PositionOrigin planeIconPosition = PositionOrigin.Center;
+            ImageLayer.AddChild(PlaneIconImage, planeIconLocation, planeIconPosition);
+            myMap.Children.Add(ImageLayer);
         }
 
         ~MainWindow()
@@ -224,9 +251,13 @@ namespace MSFS2020Navi
                     //displayText("Alt:   " + s1.altitude);
                     
                     DisplayText("Heading:   " + s1.heading);
+                    mapCenter = new Location(s1.latitude, s1.longitude);
+                    myMap.SetView(mapCenter, 16, 0d);
 
-                    map.Center = new Location(s1.latitude, s1.longitude);
-                    map.ZoomLevel = 15;
+                    MapLayer.SetPosition(ImageLayer.FindChild<Image>(), mapCenter);
+                    RotateTransform rotateTransform = new RotateTransform(s1.heading);
+                    ImageLayer.FindChild<Image>().RenderTransform = rotateTransform;
+
                     break;
 
                 default:
@@ -258,67 +289,6 @@ namespace MSFS2020Navi
 
             simConnect.RequestDataOnSimObjectType(DATA_REQUESTS.REQUEST_1, DEFINITIONS.Struct1, 0, SIMCONNECT_SIMOBJECT_TYPE.USER);
             DisplayText("Request sent...");
-        }
-
-        private void MapMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            if (e.ClickCount == 2)
-            {
-                //map.ZoomMap(e.GetPosition(map), Math.Floor(map.ZoomLevel + 1.5));
-                //map.ZoomToBounds(new BoundingBox(53, 7, 54, 9));
-                map.TargetCenter = map.ViewToLocation(e.GetPosition(map));
-            }
-        }
-
-        private void MapMouseRightButtonDown(object sender, MouseButtonEventArgs e)
-        {
-            if (e.ClickCount == 2)
-            {
-                //map.ZoomMap(e.GetPosition(map), Math.Ceiling(map.ZoomLevel - 1.5));
-            }
-        }
-
-        private void MapMouseMove(object sender, MouseEventArgs e)
-        {
-            var location = map.ViewToLocation(e.GetPosition(map));
-            var latitude = (int)Math.Round(location.Latitude * 60000d);
-            var longitude = (int)Math.Round(Location.NormalizeLongitude(location.Longitude) * 60000d);
-            var latHemisphere = 'N';
-            var lonHemisphere = 'E';
-
-            if (latitude < 0)
-            {
-                latitude = -latitude;
-                latHemisphere = 'S';
-            }
-
-            if (longitude < 0)
-            {
-                longitude = -longitude;
-                lonHemisphere = 'W';
-            }
-
-            mouseLocation.Text = string.Format(CultureInfo.InvariantCulture,
-                "{0}  {1:00} {2:00.000}\n{3} {4:000} {5:00.000}",
-                latHemisphere, latitude / 60000, (latitude % 60000) / 1000d,
-                lonHemisphere, longitude / 60000, (longitude % 60000) / 1000d);
-        }
-
-        private void MapMouseLeave(object sender, MouseEventArgs e)
-        {
-            mouseLocation.Text = string.Empty;
-        }
-
-        private void MapManipulationInertiaStarting(object sender, ManipulationInertiaStartingEventArgs e)
-        {
-            e.TranslationBehavior.DesiredDeceleration = 0.001;
-        }
-
-        private void MapItemTouchDown(object sender, TouchEventArgs e)
-        {
-            var mapItem = (MapItem)sender;
-            mapItem.IsSelected = !mapItem.IsSelected;
-            e.Handled = true;
         }
     }
 }
